@@ -2,36 +2,34 @@ import modal
 import pickle
 import string
 import nltk
-import os
-from pathlib import Path
 from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 
 modal_app = modal.App("emotion-ai-api")
 
-# Yahan se add_local_file hata diya gaya hai taaki error na aaye
+# Sirf Python aur FastAPI dependencies, frontend hata diya
 modal_image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install("fastapi", "uvicorn", "pydantic", "nltk", "scikit-learn")
     .run_commands("python -m nltk.downloader punkt punkt_tab stopwords")
-    .add_local_dir("static", remote_path="/root/static")
-    .add_local_dir("templates", remote_path="/root/templates")
 )
 
-# Modal Volume ko load karein
+# Cloud storage volume jahan models rakhe hain
 model_volume = modal.Volume.from_name("emotion-models", create_if_missing=True)
 
 app = FastAPI()
 
-STATIC_DIR = Path("/root/static")
-TEMPLATES_DIR = Path("/root/templates")
-
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+# ⚠️ VERCEL SE CONNECT KARNE KE LIYE CORS MIDDLEWARE ZAROORI HAI
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Ye kisi bhi Vercel URL se request accept karega
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class TextInput(BaseModel):
     text: str
@@ -54,7 +52,6 @@ inv_mapping = None
 def load_models():
     global model, vectorizer, inv_mapping
     try:
-        # Ab models /data/ folder se load honge jo cloud storage me hai
         with open('/data/logistic_model.pkl', 'rb') as f:
             model = pickle.load(f)
         with open('/data/tfidf_vectorizer.pkl', 'rb') as f:
@@ -68,7 +65,7 @@ def load_models():
 @app.post("/predict")
 def predict(payload: TextInput):
     if not model or not vectorizer:
-        raise HTTPException(status_code=500, detail="Models not loaded successfully on server")
+        raise HTTPException(status_code=500, detail="Models not loaded")
         
     try:
         text = payload.text
@@ -96,14 +93,14 @@ def predict(payload: TextInput):
 
 @app.get("/")
 def read_index():
-    return FileResponse(str(TEMPLATES_DIR / "index.html"))
+    return {"status": "EmotionAI Backend is Active. Connected to Vercel."}
 
 @modal_app.function(
     image=modal_image,
     cpu=2.0,
     memory=2048,
     timeout=300,
-    volumes={"/data": model_volume}  # Volume ko /data path par mount kiya
+    volumes={"/data": model_volume}
 )
 @modal.asgi_app()
 def serve():

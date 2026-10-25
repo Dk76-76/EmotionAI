@@ -246,7 +246,7 @@
         showLoading();
 
         try {
-            const response = await fetch('/predict', {
+            const response = await fetch('https://dk76-76--emotion-ai-api-serve.us-east.modal.run/predict', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
